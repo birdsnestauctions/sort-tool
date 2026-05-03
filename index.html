@@ -183,9 +183,28 @@ function splitLine(line) {
   var cols = [], cur = '', inQ = false;
   for (var i = 0; i < line.length; i++) {
     var c = line[i];
-    if (c === '"') { if (inQ && line[i+1]==='"') { cur+='"'; i++; } else inQ=!inQ; }
-    else if (c===',' && !inQ) { cols.push(cur); cur=''; }
-    else cur+=c;
+    if (c === '"') {
+      if (!inQ && cur === '') {
+        inQ = true; // opening quote at start of field
+      } else if (inQ && line[i+1] === '"') {
+        cur += '"'; i++; // escaped double-quote
+      } else if (inQ) {
+        // Only treat as closing quote if followed by comma, end of line, or another quote
+        // This handles inch marks like 11.5" inside quoted fields
+        var next = line[i+1];
+        if (next === ',' || next === undefined || i === line.length - 1) {
+          inQ = false; // legitimate closing quote
+        } else {
+          cur += c; // inch mark or stray quote mid-field — treat as literal
+        }
+      } else {
+        cur += c; // quote outside of quoted field — treat as literal
+      }
+    } else if (c === ',' && !inQ) {
+      cols.push(cur); cur = '';
+    } else {
+      cur += c;
+    }
   }
   cols.push(cur);
   return cols;
