@@ -165,49 +165,64 @@ header span { font-size: 13px; opacity: 0.75; }
 var originalLots = [], order = [], dragSrc = null, currentFilename = '', zipFileRef = null;
 
 function parseCSV(text) {
-  var lines = text.split(/\r?\n/), header = null, results = [];
+  var lines = text.split(/\r?\n/), results = [], headerDone = false;
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i].trim();
     if (!line) continue;
-    var cols = splitLine(line);
-    if (!header) { header = cols.map(function(c){ return c.trim(); }); continue; }
-    if (cols.length < 4) continue;
-    var row = {};
-    for (var j = 0; j < header.length && j < cols.length; j++) row[header[j]] = cols[j];
-    results.push(row);
+    if (!headerDone) { headerDone = true; continue; } // skip header
+    var row = parseBidPathLine(line);
+    if (row) results.push(row);
   }
   return results;
 }
 
-function splitLine(line) {
-  var cols = [], cur = '', inQ = false;
-  for (var i = 0; i < line.length; i++) {
-    var c = line[i];
-    if (c === '\\' && inQ && line[i+1] === '"') {
-      cur += '"'; i++; // backslash-escaped quote \" inside quoted field
-    } else if (c === '"') {
-      if (!inQ && cur === '') {
-        inQ = true; // opening quote at start of field
-      } else if (inQ && line[i+1] === '"') {
-        cur += '"'; i++; // RFC 4180 doubled-quote escape
-      } else if (inQ) {
-        var next = line[i+1];
-        if (next === ',' || next === undefined || i === line.length - 1) {
-          inQ = false; // legitimate closing quote
-        } else {
-          cur += c; // stray quote mid-field — treat as literal
-        }
-      } else {
-        cur += c;
-      }
-    } else if (c === ',' && !inQ) {
-      cols.push(cur); cur = '';
-    } else {
-      cur += c;
-    }
+function parseBidPathLine(line) {
+  // BidPath CSV structure: "Item","Lot","LotName","ImageURLs","SortOrder"
+  // LotName can contain ANYTHING: commas, unescaped quotes, inch marks
+  // So we parse the safe fields from both ends and take the middle as the name.
+
+  // 1) First two fields: item number and lot number (always simple numbers)
+  var p1 = line.indexOf('","');
+  if (p1 < 0) return null;
+  var p2 = line.indexOf('","', p1 + 3);
+  if (p2 < 0) return null;
+
+  var item = line.substring(line[0]==='"'?1:0, p1);
+  var lot = line.substring(p1 + 3, p2);
+
+  // 2) Sort order: last field, always a short number at end of line
+  //    Line ends with ","NNN" or just the number
+  var lastQ = line.lastIndexOf('"');
+  var prevSep = line.lastIndexOf('","', lastQ - 1);
+  var sortOrder = (prevSep >= 0) ? line.substring(prevSep + 3, lastQ) : '';
+
+  // 3) Image URL: find boundary using ","https:// which won't appear in lot names
+  var imgMarker = line.indexOf('","https://');
+  // Also check for case where image field might start differently
+  if (imgMarker < 0) imgMarker = line.indexOf('","http://');
+
+  var name, image;
+  if (imgMarker > p2) {
+    // Image URL exists — name is between lot and image, image is between marker and sort
+    name = line.substring(p2 + 3, imgMarker);
+    image = line.substring(imgMarker + 3, prevSep);
+  } else {
+    // No image URL — name is between lot and sort order
+    name = line.substring(p2 + 3, prevSep);
+    image = '';
   }
-  cols.push(cur);
-  return cols;
+
+  // Clean trailing/leading quotes from name
+  if (name.charAt(0) === '"') name = name.substring(1);
+  if (name.charAt(name.length-1) === '"') name = name.substring(0, name.length-1);
+
+  return {
+    'ItemNumberConcatenated': item,
+    'LotNumberConcatenated': lot,
+    'LotName': name,
+    'LotImage': image,
+    'Sort Order': sortOrder
+  };
 }
 
 function processCSV(text, filename) {
