@@ -50,11 +50,17 @@ header span { font-size: 13px; opacity: 0.75; }
 
 #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 12px; padding: 20px 24px 60px; }
 
-.card { background: #fff; border: 1px solid #e8e8e6; border-radius: 12px; overflow: hidden; cursor: grab; user-select: none; transition: opacity 0.15s; }
+.card { background: #fff; border: 1px solid #e8e8e6; border-radius: 12px; overflow: hidden; cursor: grab; user-select: none; transition: opacity 0.15s; position: relative; }
 .card:active { cursor: grabbing; }
 .card.dragging { opacity: 0.3; }
 .card.drag-over { border: 2px solid #2D6B5E; }
 .card.changed { border-left: 3px solid #2D6B5E; }
+.card.selected { border: 2px solid #2D6B5E; background: #f0f8f5; }
+.card-checkbox { position: absolute; top: 7px; right: 7px; width: 18px; height: 18px; cursor: pointer; accent-color: #2D6B5E; z-index: 2; }
+#selection-bar { display: none; background: #2D6B5E; color: #fff; padding: 8px 24px; align-items: center; gap: 10px; font-size: 13px; }
+#selection-bar span { flex: 1; }
+.btn-white { background: #fff; color: #2D6B5E; border: none; font-size: 12px; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-family: inherit; font-weight: 500; }
+.btn-white:hover { background: #e8f4f0; }
 .card-img { width: 100%; height: 115px; object-fit: cover; display: block; background: #f0f0ee; }
 .card-img-placeholder { width: 100%; height: 115px; background: #f0f0ee; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #aaa; }
 .card-body { padding: 8px 10px 10px; }
@@ -128,6 +134,12 @@ header span { font-size: 13px; opacity: 0.75; }
       <button class="btn btn-ghost" onclick="loadNewCSV()">Load new CSV</button>
       <button class="btn btn-outline" onclick="exportBidPath()">Export BidPath CSV</button>
       <button class="btn btn-teal" onclick="switchTab(2)">Next: rename images &rarr;</button>
+    </div>
+    <div id="selection-bar">
+      <span id="selection-count">0 lots selected</span>
+      <button class="btn-white" onclick="sendToTop()">&#8593; Send to top</button>
+      <button class="btn-white" onclick="sendToBottom()">&#8595; Send to bottom</button>
+      <button class="btn-white" onclick="clearSelection()">Clear</button>
     </div>
     <div id="sort-error" class="error-msg" style="margin:16px 24px 0;"></div>
     <div id="grid"></div>
@@ -245,6 +257,57 @@ function processCSV(text, filename) {
   render();
 }
 
+var selectedItems = new Set();
+
+function updateSelectionBar() {
+  var bar = document.getElementById('selection-bar');
+  var count = selectedItems.size;
+  if (count > 0) {
+    bar.style.display = 'flex';
+    document.getElementById('selection-count').textContent = count + ' lot' + (count > 1 ? 's' : '') + ' selected';
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function clearSelection() {
+  selectedItems.clear();
+  document.querySelectorAll('.card.selected').forEach(function(c) { c.classList.remove('selected'); });
+  document.querySelectorAll('.card-checkbox').forEach(function(cb) { cb.checked = false; });
+  updateSelectionBar();
+}
+
+function sendToTop() {
+  if (!selectedItems.size) return;
+  var selected = order.filter(function(l) { return selectedItems.has(l.item); });
+  var rest = order.filter(function(l) { return !selectedItems.has(l.item); });
+  order = selected.concat(rest);
+  clearSelection();
+  render();
+}
+
+function sendToBottom() {
+  if (!selectedItems.size) return;
+  var selected = order.filter(function(l) { return selectedItems.has(l.item); });
+  var rest = order.filter(function(l) { return !selectedItems.has(l.item); });
+  order = rest.concat(selected);
+  clearSelection();
+  render();
+}
+
+function toggleSelect(itemId, cb) {
+  if (cb.checked) {
+    selectedItems.add(itemId);
+    var card = cb.closest('.card');
+    if (card) card.classList.add('selected');
+  } else {
+    selectedItems.delete(itemId);
+    var card = cb.closest('.card');
+    if (card) card.classList.remove('selected');
+  }
+  updateSelectionBar();
+}
+
 function render() {
   var grid = document.getElementById('grid'), changed = 0;
   for (var i=0;i<order.length;i++) if ((i+1)!==order[i].origSort) changed++;
@@ -253,24 +316,44 @@ function render() {
   for (var i=0;i<order.length;i++) {
     (function(lot, rank) {
       var wc = rank!==lot.origSort;
+      var isSel = selectedItems.has(lot.item);
       var card = document.createElement('div');
-      card.className = 'card'+(wc?' changed':'');
-      card.draggable = true; card.dataset.idx = rank-1;
+      card.className = 'card'+(wc?' changed':'')+(isSel?' selected':'');
+      card.draggable = true; card.dataset.idx = rank-1; card.dataset.item = lot.item;
       var imgH = lot.image
-        ? '<img class="card-img" src="'+esc(lot.image)+'" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">'
+        ? '<img class="card-img" src="'+esc(lot.image)+'" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">'
           +'<div class="card-img-placeholder" style="display:none">no image</div>'
         : '<div class="card-img-placeholder">no image</div>';
       var badge = wc ? '<div class="card-badge">was '+(lot.origSort<9000?'#'+lot.origSort:'unset')+'</div>' : '';
-      card.innerHTML = imgH+'<div class="card-body"><div class="card-rank">#'+rank+'</div><div class="card-name">'+esc(lot.name)+'</div><div class="card-meta">Lot '+esc(lot.lot)+' &middot; Item '+esc(lot.item)+'</div>'+badge+'</div>';
-      card.addEventListener('dragstart',function(e){ dragSrc=card; card.classList.add('dragging'); e.dataTransfer.effectAllowed='move'; });
-      card.addEventListener('dragend',function(){ card.classList.remove('dragging'); document.querySelectorAll('.card').forEach(function(c){ c.classList.remove('drag-over'); }); });
+      card.innerHTML = '<input type="checkbox" class="card-checkbox"'+(isSel?' checked':'')+' onclick="event.stopPropagation();toggleSelect(''+lot.item+'',this)">'
+        +imgH+'<div class="card-body"><div class="card-rank">#'+rank+'</div><div class="card-name">'+esc(lot.name)+'</div><div class="card-meta">Lot '+esc(lot.lot)+' &middot; Item '+esc(lot.item)+'</div>'+badge+'</div>';
+      card.addEventListener('dragstart',function(e){
+        dragSrc=card;
+        if (!selectedItems.has(lot.item)) clearSelection();
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed='move';
+      });
+      card.addEventListener('dragend',function(){
+        document.querySelectorAll('.card').forEach(function(c){ c.classList.remove('dragging','drag-over'); });
+      });
       card.addEventListener('dragover',function(e){ e.preventDefault(); card.classList.add('drag-over'); });
       card.addEventListener('dragleave',function(){ card.classList.remove('drag-over'); });
       card.addEventListener('drop',function(e){
         e.preventDefault(); card.classList.remove('drag-over');
         if (!dragSrc||dragSrc===card) return;
-        var si=parseInt(dragSrc.dataset.idx), ti=parseInt(card.dataset.idx);
-        order.splice(ti,0,order.splice(si,1)[0]);
+        var ti=parseInt(card.dataset.idx), si=parseInt(dragSrc.dataset.idx);
+        if (selectedItems.size > 1 && selectedItems.has(dragSrc.dataset.item)) {
+          var selected = order.filter(function(l){ return selectedItems.has(l.item); });
+          var rest = order.filter(function(l){ return !selectedItems.has(l.item); });
+          var targetItem = order[ti].item;
+          var insertAt = rest.findIndex(function(l){ return l.item===targetItem; });
+          if (insertAt < 0) insertAt = rest.length;
+          var newOrder = rest.slice(0,insertAt).concat(selected).concat(rest.slice(insertAt));
+          order = newOrder;
+        } else {
+          order.splice(ti,0,order.splice(si,1)[0]);
+        }
+        clearSelection();
         render();
       });
       grid.appendChild(card);
@@ -278,8 +361,8 @@ function render() {
   }
 }
 
-function resetOrder() { order=JSON.parse(JSON.stringify(originalLots)); render(); }
-function loadNewCSV() { document.getElementById('upload-screen').style.display='flex'; document.getElementById('app-screen').style.display='none'; order=[]; originalLots=[]; }
+function resetOrder() { selectedItems.clear(); order=JSON.parse(JSON.stringify(originalLots)); updateSelectionBar(); render(); }
+function loadNewCSV() { selectedItems.clear(); document.getElementById('upload-screen').style.display='flex'; document.getElementById('app-screen').style.display='none'; order=[]; originalLots=[]; }
 
 function csvEsc(v) { var s=String(v); return (s.includes(',')||s.includes('"')||s.includes('\n'))?'"'+s.replace(/"/g,'""')+'"':s; }
 function slugify(n) { return n.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,40); }
