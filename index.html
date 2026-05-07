@@ -321,12 +321,16 @@ function render() {
       card.className = 'card'+(wc?' changed':'')+(isSel?' selected':'');
       card.draggable = true; card.dataset.idx = rank-1; card.dataset.item = lot.item;
       var imgH = lot.image
-        ? '<img class="card-img" src="'+esc(lot.image)+'" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">'
+        ? '<img class="card-img" src="'+esc(lot.image)+'" loading="lazy" onerror="this.style.display=&quot;none&quot;;this.nextSibling.style.display=&quot;flex&quot;">'
           +'<div class="card-img-placeholder" style="display:none">no image</div>'
         : '<div class="card-img-placeholder">no image</div>';
       var badge = wc ? '<div class="card-badge">was '+(lot.origSort<9000?'#'+lot.origSort:'unset')+'</div>' : '';
-      card.innerHTML = '<input type="checkbox" class="card-checkbox"'+(isSel?' checked':'')+' onclick="event.stopPropagation();toggleSelect(''+lot.item+'',this)">'
-        +imgH+'<div class="card-body"><div class="card-rank">#'+rank+'</div><div class="card-name">'+esc(lot.name)+'</div><div class="card-meta">Lot '+esc(lot.lot)+' &middot; Item '+esc(lot.item)+'</div>'+badge+'</div>';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.className = 'card-checkbox';
+      cb.checked = isSel;
+      cb.addEventListener('click', function(e){ e.stopPropagation(); toggleSelect(lot.item, cb); });
+      card.innerHTML = imgH+'<div class="card-body"><div class="card-rank">#'+rank+'</div><div class="card-name">'+esc(lot.name)+'</div><div class="card-meta">Lot '+esc(lot.lot)+' &middot; Item '+esc(lot.item)+'</div>'+badge+'</div>';
+      card.insertBefore(cb, card.firstChild);
       card.addEventListener('dragstart',function(e){
         dragSrc=card;
         if (!selectedItems.has(lot.item)) clearSelection();
